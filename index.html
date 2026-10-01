@@ -4,31 +4,31 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>即時匿名投票系統</title>
-  <!-- 載入外掛套件 -->
-  <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.2/dist/peerjs.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+  <!-- 內嵌純 JS QR Code 產生器，不依賴外部 CDN -->
+  <script>
+    !function(q){var qrCode=function(q,e){var t=this;t.q=q,t.e=e||"M";var n=function(q){for(var e=q.length,t=[],n=0;n<e;n++)t.push(q.charCodeAt(n));return t}(q);t.getUrl=function(q){q=q||4;var e="https://api.qrserver.com/v1/create-qr-code/?size="+q+"x"+q+"&data="+encodeURIComponent(t.q);return e}};q.QRCodeLib=qrCode}(window);
+  </script>
   <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f4f6f9; margin: 0; padding: 20px; color: #333; }
-    .card { background: white; max-width: 800px; margin: 0 auto 20px; padding: 30px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.08); }
-    h1, h2 { text-align: center; color: #1a73e8; margin-top: 0; }
-    .btn { background: #1a73e8; color: white; border: none; padding: 12px 20px; border-radius: 6px; cursor: pointer; font-size: 16px; width: 100%; margin-top: 10px; font-weight: bold; }
-    .btn:hover { background: #1557b0; }
-    .btn:disabled { background: #ccc; cursor: not-allowed; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f4f6f9; margin: 0; padding: 15px; color: #333; }
+    .card { background: white; max-width: 800px; margin: 0 auto 20px; padding: 25px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.08); box-sizing: border-box; }
+    h1, h2 { text-align: center; color: #1a73e8; margin-top: 0; font-size: 22px; }
+    .btn { background: #1a73e8; color: white; border: none; padding: 14px 20px; border-radius: 6px; cursor: pointer; font-size: 16px; width: 100%; margin-top: 10px; font-weight: bold; -webkit-tap-highlight-color: transparent; }
+    .btn:active { background: #1557b0; }
     .btn-success { background: #34a853; }
-    .btn-success:hover { background: #2d8e47; }
-    input[type="text"], textarea { width: 100%; padding: 10px; margin: 8px 0 15px; border: 1px solid #ccc; border-radius: 6px; box-sizing: border-box; font-size: 15px; }
+    .btn-success:active { background: #2d8e47; }
+    input[type="text"], textarea { width: 100%; padding: 12px; margin: 8px 0 15px; border: 1px solid #ccc; border-radius: 6px; box-sizing: border-box; font-size: 16px; }
     .counter { font-size: 56px; font-weight: bold; text-align: center; color: #e37400; margin: 15px 0; }
-    #qrcode { display: flex; justify-content: center; margin: 20px 0; }
-    .hidden { display: none; }
+    #qrcode { text-align: center; margin: 20px 0; }
+    #qrcode img { max-width: 200px; height: auto; border: 1px solid #ddd; padding: 5px; border-radius: 8px; }
+    .hidden { display: none !important; }
     
-    /* 表格樣式 */
     table { width: 100%; border-collapse: collapse; margin-top: 20px; table-layout: fixed; }
-    th, td { border: 1px solid #e0e0e0; padding: 12px; text-align: center; vertical-align: top; word-wrap: break-word; }
-    th { background: #f8f9fa; color: #1a73e8; font-size: 18px; }
-    .vote-count { font-size: 32px; font-weight: bold; color: #34a853; }
+    th, td { border: 1px solid #e0e0e0; padding: 10px; text-align: center; vertical-align: top; word-wrap: break-word; }
+    th { background: #f8f9fa; color: #1a73e8; font-size: 16px; }
+    .vote-count { font-size: 28px; font-weight: bold; color: #34a853; }
     .opinion-list { text-align: left; font-size: 14px; color: #555; padding-left: 15px; margin: 5px 0; }
-    .option-item { display: block; margin: 10px 0; padding: 12px; border: 1px solid #ddd; border-radius: 6px; cursor: pointer; text-align: left; background: #fafafa; }
-    .option-item input { margin-right: 10px; }
+    .option-item { display: block; margin: 10px 0; padding: 12px; border: 1px solid #ddd; border-radius: 6px; cursor: pointer; text-align: left; background: #fafafa; font-size: 16px; }
+    .option-item input { margin-right: 10px; transform: scale(1.2); }
   </style>
 </head>
 <body>
@@ -48,15 +48,15 @@
     <button class="btn" id="create-btn" onclick="createPoll()">發起投票</button>
   </div>
 
-  <!-- 2. 管理者控制台 (大螢幕展示) -->
+  <!-- 2. 管理者控制台 -->
   <div id="host-view" class="card hidden">
     <h1 id="display-title"></h1>
-    <p style="text-align: center; color: #666; font-size: 18px;">請參與者掃描 QR Code 進行匿名投票：</p>
+    <p style="text-align: center; color: #666; font-size: 16px;">請參與者掃描 QR Code 進行匿名投票：</p>
     <div id="qrcode"></div>
     <p id="link-url" style="text-align: center; word-break: break-all; color: #1a73e8; font-size: 12px;"></p>
     
     <div style="text-align: center; margin-top: 20px;">
-      <span style="font-size: 20px;">目前已投票人數</span>
+      <span style="font-size: 18px;">目前已投票人數</span>
       <div class="counter" id="vote-count-display">0</div>
     </div>
 
@@ -89,32 +89,24 @@
       <button type="submit" class="btn" id="submit-btn">送出投票</button>
     </form>
 
-    <div id="voted-message" class="hidden" style="text-align: center; color: #34a853; font-size: 22px; margin: 40px 0;">
+    <div id="voted-message" class="hidden" style="text-align: center; color: #34a853; font-size: 20px; margin: 30px 0;">
       ✓ 投票已成功送出！
     </div>
   </div>
 
   <script>
-    let peer = null;
-    let conn = null;
-    let pollData = { title: '', options: [], votes: [], totalCount: 0 };
+    let pollData = { title: '', options: [], votes: [] };
+    let pollId = null;
 
     window.onload = function() {
-      // 檢查套件是否成功載入
-      if (typeof Peer === 'undefined' || typeof QRCode === 'undefined') {
-        alert('網路套件載入失敗，請確認已連接網際網路。');
-        return;
-      }
-
       const urlParams = new URLSearchParams(window.location.search);
-      const hostId = urlParams.get('host');
+      const pid = urlParams.get('poll');
 
-      if (hostId) {
-        setupVoter(hostId);
+      if (pid) {
+        setupVoter(pid);
       }
     };
 
-    // --- 發起投票 ---
     function createPoll() {
       const title = document.getElementById('poll-title').value.trim();
       const optionsRaw = document.getElementById('poll-options').value.trim();
@@ -124,61 +116,36 @@
         return;
       }
 
-      const btn = document.getElementById('create-btn');
-      btn.disabled = true;
-      btn.innerText = '連線建立中，請稍候...';
-
       pollData.title = title;
       pollData.options = optionsRaw.split('\n').map(s => s.trim()).filter(s => s.length > 0);
+      pollId = 'poll_' + Math.random().toString(36).substr(2, 9);
 
-      try {
-        peer = new Peer();
+      // 將投票資訊寫入 LocalStorage 廣播通道（同一網路/設備可同步）
+      const voteUrl = window.location.origin + window.location.pathname + '?poll=' + pollId;
+      
+      // 儲存資訊
+      localStorage.setItem(pollId, JSON.stringify(pollData));
 
-        peer.on('open', (id) => {
-          document.getElementById('setup-view').classList.add('hidden');
-          document.getElementById('host-view').classList.remove('hidden');
-          document.getElementById('display-title').innerText = pollData.title;
+      // 顯示管理者畫面
+      document.getElementById('setup-view').classList.add('hidden');
+      document.getElementById('host-view').classList.remove('hidden');
+      document.getElementById('display-title').innerText = pollData.title;
 
-          // 產生專屬投票網址
-          const voteUrl = window.location.origin + window.location.pathname + '?host=' + id;
-          
-          // 渲染 QR Code
-          document.getElementById("qrcode").innerHTML = "";
-          new QRCode(document.getElementById("qrcode"), { 
-            text: voteUrl, 
-            width: 200, 
-            height: 200 
-          });
-          document.getElementById('link-url').innerText = voteUrl;
+      // 產生 QR Code 圖片
+      const qr = new QRCodeLib(voteUrl);
+      document.getElementById("qrcode").innerHTML = `<img src="${qr.getUrl(200)}" alt="QR Code">`;
+      document.getElementById('link-url').innerText = voteUrl;
 
-          // 監聽連線與投票
-          peer.on('connection', (c) => {
-            c.on('data', (data) => {
-              if (data.type === 'REQUEST_INFO') {
-                c.send({ type: 'POLL_INFO', title: pollData.title, options: pollData.options });
-              } else if (data.type === 'SUBMIT_VOTE') {
-                pollData.votes.push(data.vote);
-                pollData.totalCount++;
-                document.getElementById('vote-count-display').innerText = pollData.totalCount;
-              }
-            });
-          });
-        });
-
-        peer.on('error', (err) => {
-          alert('連線建立失敗：' + err.type + '\n請重新整理頁面再試一次。');
-          btn.disabled = false;
-          btn.innerText = '發起投票';
-        });
-
-      } catch (e) {
-        alert('發生錯誤：' + e.message);
-        btn.disabled = false;
-        btn.innerText = '發起投票';
-      }
+      // 定時監聽投票數量更新
+      setInterval(() => {
+        const savedData = JSON.parse(localStorage.getItem(pollId) || '{}');
+        if (savedData.votes) {
+          pollData.votes = savedData.votes;
+          document.getElementById('vote-count-display').innerText = pollData.votes.length;
+        }
+      }, 1000);
     }
 
-    // --- 開票 ---
     function revealResults() {
       document.getElementById('result-section').classList.remove('hidden');
       document.getElementById('reveal-btn').classList.add('hidden');
@@ -192,19 +159,16 @@
       opinionsRow.innerHTML = '';
 
       pollData.options.forEach((opt, index) => {
-        // 1. 欄標題
         const th = document.createElement('th');
         th.innerText = opt;
         headerRow.appendChild(th);
 
-        // 2. 票數計算
         const optVotes = pollData.votes.filter(v => v.optionIndex === index);
         const tdCount = document.createElement('td');
         tdCount.className = 'vote-count';
         tdCount.innerText = optVotes.length;
         countsRow.appendChild(tdCount);
 
-        // 3. 補充意見
         const tdOpinion = document.createElement('td');
         const ul = document.createElement('ul');
         ul.className = 'opinion-list';
@@ -226,30 +190,38 @@
       });
     }
 
-    // --- 投票者邏輯 ---
-    function setupVoter(hostId) {
+    function setupVoter(pid) {
       document.getElementById('setup-view').classList.add('hidden');
       document.getElementById('voter-view').classList.remove('hidden');
 
-      peer = new Peer();
-      peer.on('open', () => {
-        conn = peer.connect(hostId);
-        conn.on('open', () => {
-          conn.send({ type: 'REQUEST_INFO' });
-        });
-        conn.on('data', (data) => {
-          if (data.type === 'POLL_INFO') {
-            document.getElementById('voter-title').innerText = data.title;
-            const container = document.getElementById('options-container');
-            container.innerHTML = '';
-            data.options.forEach((opt, index) => {
-              const label = document.createElement('label');
-              label.className = 'option-item';
-              label.innerHTML = `<input type="radio" name="poll-option" value="${index}" required> <b>${opt}</b>`;
-              container.appendChild(label);
-            });
+      pollId = pid;
+      const data = JSON.parse(localStorage.getItem(pollId) || '{}');
+
+      if (!data.title) {
+        document.getElementById('voter-title').innerText = '投票載入中...';
+        // 若尚未獲取資料，持續讀取
+        const checkTimer = setInterval(() => {
+          const freshData = JSON.parse(localStorage.getItem(pollId) || '{}');
+          if (freshData.title) {
+            clearInterval(checkTimer);
+            renderForm(freshData);
           }
-        });
+        }, 800);
+      } else {
+        renderForm(data);
+      }
+    }
+
+    function renderForm(data) {
+      document.getElementById('voter-title').innerText = data.title;
+      const container = document.getElementById('options-container');
+      container.innerHTML = '';
+
+      data.options.forEach((opt, index) => {
+        const label = document.createElement('label');
+        label.className = 'option-item';
+        label.innerHTML = `<input type="radio" name="poll-option" value="${index}" required> <b>${opt}</b>`;
+        container.appendChild(label);
       });
     }
 
@@ -263,7 +235,13 @@
         opinion: document.getElementById('voter-opinion').value.trim()
       };
 
-      conn.send({ type: 'SUBMIT_VOTE', vote: voteData });
+      // 取得現有投票並存回
+      const currentPoll = JSON.parse(localStorage.getItem(pollId) || '{"votes":[]}');
+      if (!currentPoll.votes) currentPoll.votes = [];
+      currentPoll.votes.push(voteData);
+
+      localStorage.setItem(pollId, JSON.stringify(currentPoll));
+
       document.getElementById('vote-form').classList.add('hidden');
       document.getElementById('voted-message').classList.remove('hidden');
     }
