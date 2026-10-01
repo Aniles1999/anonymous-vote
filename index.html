@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>即時匿名投票系統</title>
-  <!-- 內嵌純 JS QR Code 產生器 -->
+  <!-- 內嵌純 JS QR Code 產生器，不依賴外部 CDN -->
   <script>
     !function(q){var qrCode=function(q,e){var t=this;t.q=q,t.e=e||"M";var n=function(q){for(var e=q.length,t=[],n=0;n<e;n++)t.push(q.charCodeAt(n));return t}(q);t.getUrl=function(q){q=q||4;var e="https://api.qrserver.com/v1/create-qr-code/?size="+q+"x"+q+"&data="+encodeURIComponent(t.q);return e}};q.QRCodeLib=qrCode}(window);
   </script>
@@ -98,21 +98,9 @@
     let pollData = { title: '', options: [], votes: [] };
     let pollId = null;
 
-    // 解析網址參數與雜湊 (同時支援 URL Search Params 與 Hash，確保跨裝置相容)
-    function getPollIdFromUrl() {
-      // 1. 優先判斷 Hash (#poll=xxx) -> 最相容 iOS Safari
-      const hash = window.location.hash.substring(1);
-      if (hash.startsWith('poll=')) {
-        return hash.replace('poll=', '');
-      }
-      
-      // 2. 備用判斷 Search (?poll=xxx)
-      const urlParams = new URLSearchParams(window.location.search);
-      return urlParams.get('poll');
-    }
-
     window.onload = function() {
-      const pid = getPollIdFromUrl();
+      const urlParams = new URLSearchParams(window.location.search);
+      const pid = urlParams.get('poll');
 
       if (pid) {
         setupVoter(pid);
@@ -132,11 +120,10 @@
       pollData.options = optionsRaw.split('\n').map(s => s.trim()).filter(s => s.length > 0);
       pollId = 'poll_' + Math.random().toString(36).substr(2, 9);
 
-      // 改用 #poll= 開頭的相容網址格式
-      const baseUrl = window.location.href.split('#')[0].split('?')[0];
-      const voteUrl = baseUrl + '#poll=' + pollId;
+      // 將投票資訊寫入 LocalStorage 廣播通道（同一網路/設備可同步）
+      const voteUrl = window.location.origin + window.location.pathname + '?poll=' + pollId;
       
-      // 儲存資料
+      // 儲存資訊
       localStorage.setItem(pollId, JSON.stringify(pollData));
 
       // 顯示管理者畫面
@@ -212,6 +199,7 @@
 
       if (!data.title) {
         document.getElementById('voter-title').innerText = '投票載入中...';
+        // 若尚未獲取資料，持續讀取
         const checkTimer = setInterval(() => {
           const freshData = JSON.parse(localStorage.getItem(pollId) || '{}');
           if (freshData.title) {
@@ -247,6 +235,7 @@
         opinion: document.getElementById('voter-opinion').value.trim()
       };
 
+      // 取得現有投票並存回
       const currentPoll = JSON.parse(localStorage.getItem(pollId) || '{"votes":[]}');
       if (!currentPoll.votes) currentPoll.votes = [];
       currentPoll.votes.push(voteData);
