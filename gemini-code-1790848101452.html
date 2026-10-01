@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>即時匿名投票系統</title>
+  <!-- 載入外掛套件 -->
+  <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.2/dist/peerjs.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f4f6f9; margin: 0; padding: 20px; color: #333; }
+    .card { background: white; max-width: 800px; margin: 0 auto 20px; padding: 30px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.08); }
+    h1, h2 { text-align: center; color: #1a73e8; margin-top: 0; }
+    .btn { background: #1a73e8; color: white; border: none; padding: 12px 20px; border-radius: 6px; cursor: pointer; font-size: 16px; width: 100%; margin-top: 10px; font-weight: bold; }
+    .btn:hover { background: #1557b0; }
+    .btn:disabled { background: #ccc; cursor: not-allowed; }
+    .btn-success { background: #34a853; }
+    .btn-success:hover { background: #2d8e47; }
+    input[type="text"], textarea { width: 100%; padding: 10px; margin: 8px 0 15px; border: 1px solid #ccc; border-radius: 6px; box-sizing: border-box; font-size: 15px; }
+    .counter { font-size: 56px; font-weight: bold; text-align: center; color: #e37400; margin: 15px 0; }
+    #qrcode { display: flex; justify-content: center; margin: 20px 0; }
+    .hidden { display: none; }
+    
+    /* 表格樣式 */
+    table { width: 100%; border-collapse: collapse; margin-top: 20px; table-layout: fixed; }
+    th, td { border: 1px solid #e0e0e0; padding: 12px; text-align: center; vertical-align: top; word-wrap: break-word; }
+    th { background: #f8f9fa; color: #1a73e8; font-size: 18px; }
+    .vote-count { font-size: 32px; font-weight: bold; color: #34a853; }
+    .opinion-list { text-align: left; font-size: 14px; color: #555; padding-left: 15px; margin: 5px 0; }
+    .option-item { display: block; margin: 10px 0; padding: 12px; border: 1px solid #ddd; border-radius: 6px; cursor: pointer; text-align: left; background: #fafafa; }
+    .option-item input { margin-right: 10px; }
+  </style>
+</head>
+<body>
+
+  <!-- 1. 管理者：建立投票 -->
+  <div id="setup-view" class="card">
+    <h1>建立新投票</h1>
+    <label><b>投票主題：</b></label>
+    <input type="text" id="poll-title" placeholder="例如：本案性騷擾是否成立？" value="本案性騷擾是否成立？">
+    
+    <label><b>投票選項（請用換行分隔）：</b></label>
+    <textarea id="poll-options" rows="5">成立
+不成立
+依調查報告部分成立、部分不成立
+其他</textarea>
+    
+    <button class="btn" id="create-btn" onclick="createPoll()">發起投票</button>
+  </div>
+
+  <!-- 2. 管理者控制台 (大螢幕展示) -->
+  <div id="host-view" class="card hidden">
+    <h1 id="display-title"></h1>
+    <p style="text-align: center; color: #666; font-size: 18px;">請參與者掃描 QR Code 進行匿名投票：</p>
+    <div id="qrcode"></div>
+    <p id="link-url" style="text-align: center; word-break: break-all; color: #1a73e8; font-size: 12px;"></p>
+    
+    <div style="text-align: center; margin-top: 20px;">
+      <span style="font-size: 20px;">目前已投票人數</span>
+      <div class="counter" id="vote-count-display">0</div>
+    </div>
+
+    <button class="btn btn-success" id="reveal-btn" onclick="revealResults()">開票（顯示結果與意見）</button>
+
+    <!-- 開票結果展示區 -->
+    <div id="result-section" class="hidden">
+      <h2 style="margin-top: 30px;">開票結果</h2>
+      <div style="overflow-x: auto;">
+        <table id="result-table">
+          <thead><tr id="table-header"></tr></thead>
+          <tbody>
+            <tr id="table-counts"></tr>
+            <tr id="table-opinions"></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- 3. 參與者：手機投票頁面 -->
+  <div id="voter-view" class="card hidden">
+    <h1 id="voter-title">載入中...</h1>
+    <form id="vote-form" onsubmit="submitVote(event)">
+      <div id="options-container"></div>
+      
+      <label style="margin-top: 20px; display:block;"><b>其他補充意見（選填）：</b></label>
+      <textarea id="voter-opinion" rows="3" placeholder="請輸入您的具體意見或說明..."></textarea>
+      
+      <button type="submit" class="btn" id="submit-btn">送出投票</button>
+    </form>
+
+    <div id="voted-message" class="hidden" style="text-align: center; color: #34a853; font-size: 22px; margin: 40px 0;">
+      ✓ 投票已成功送出！
+    </div>
+  </div>
+
+  <script>
+    let peer = null;
+    let conn = null;
+    let pollData = { title: '', options: [], votes: [], totalCount: 0 };
+
+    window.onload = function() {
+      // 檢查套件是否成功載入
+      if (typeof Peer === 'undefined' || typeof QRCode === 'undefined') {
+        alert('網路套件載入失敗，請確認已連接網際網路。');
+        return;
+      }
+
+      const urlParams = new URLSearchParams(window.location.search);
+      const hostId = urlParams.get('host');
+
+      if (hostId) {
+        setupVoter(hostId);
+      }
+    };
+
+    // --- 發起投票 ---
+    function createPoll() {
+      const title = document.getElementById('poll-title').value.trim();
+      const optionsRaw = document.getElementById('poll-options').value.trim();
+
+      if (!title || !optionsRaw) {
+        alert('請輸入主題與選項！');
+        return;
+      }
+
+      const btn = document.getElementById('create-btn');
+      btn.disabled = true;
+      btn.innerText = '連線建立中，請稍候...';
+
+      pollData.title = title;
+      pollData.options = optionsRaw.split('\n').map(s => s.trim()).filter(s => s.length > 0);
+
+      try {
+        peer = new Peer();
+
+        peer.on('open', (id) => {
+          document.getElementById('setup-view').classList.add('hidden');
+          document.getElementById('host-view').classList.remove('hidden');
+          document.getElementById('display-title').innerText = pollData.title;
+
+          // 產生專屬投票網址
+          const voteUrl = window.location.origin + window.location.pathname + '?host=' + id;
+          
+          // 渲染 QR Code
+          document.getElementById("qrcode").innerHTML = "";
+          new QRCode(document.getElementById("qrcode"), { 
+            text: voteUrl, 
+            width: 200, 
+            height: 200 
+          });
+          document.getElementById('link-url').innerText = voteUrl;
+
+          // 監聽連線與投票
+          peer.on('connection', (c) => {
+            c.on('data', (data) => {
+              if (data.type === 'REQUEST_INFO') {
+                c.send({ type: 'POLL_INFO', title: pollData.title, options: pollData.options });
+              } else if (data.type === 'SUBMIT_VOTE') {
+                pollData.votes.push(data.vote);
+                pollData.totalCount++;
+                document.getElementById('vote-count-display').innerText = pollData.totalCount;
+              }
+            });
+          });
+        });
+
+        peer.on('error', (err) => {
+          alert('連線建立失敗：' + err.type + '\n請重新整理頁面再試一次。');
+          btn.disabled = false;
+          btn.innerText = '發起投票';
+        });
+
+      } catch (e) {
+        alert('發生錯誤：' + e.message);
+        btn.disabled = false;
+        btn.innerText = '發起投票';
+      }
+    }
+
+    // --- 開票 ---
+    function revealResults() {
+      document.getElementById('result-section').classList.remove('hidden');
+      document.getElementById('reveal-btn').classList.add('hidden');
+
+      const headerRow = document.getElementById('table-header');
+      const countsRow = document.getElementById('table-counts');
+      const opinionsRow = document.getElementById('table-opinions');
+
+      headerRow.innerHTML = '';
+      countsRow.innerHTML = '';
+      opinionsRow.innerHTML = '';
+
+      pollData.options.forEach((opt, index) => {
+        // 1. 欄標題
+        const th = document.createElement('th');
+        th.innerText = opt;
+        headerRow.appendChild(th);
+
+        // 2. 票數計算
+        const optVotes = pollData.votes.filter(v => v.optionIndex === index);
+        const tdCount = document.createElement('td');
+        tdCount.className = 'vote-count';
+        tdCount.innerText = optVotes.length;
+        countsRow.appendChild(tdCount);
+
+        // 3. 補充意見
+        const tdOpinion = document.createElement('td');
+        const ul = document.createElement('ul');
+        ul.className = 'opinion-list';
+        
+        optVotes.forEach(v => {
+          if (v.opinion && v.opinion.trim() !== '') {
+            const li = document.createElement('li');
+            li.innerText = v.opinion;
+            ul.appendChild(li);
+          }
+        });
+
+        if (ul.children.length === 0) {
+          tdOpinion.innerHTML = '<span style="color:#aaa;">無補充意見</span>';
+        } else {
+          tdOpinion.appendChild(ul);
+        }
+        opinionsRow.appendChild(tdOpinion);
+      });
+    }
+
+    // --- 投票者邏輯 ---
+    function setupVoter(hostId) {
+      document.getElementById('setup-view').classList.add('hidden');
+      document.getElementById('voter-view').classList.remove('hidden');
+
+      peer = new Peer();
+      peer.on('open', () => {
+        conn = peer.connect(hostId);
+        conn.on('open', () => {
+          conn.send({ type: 'REQUEST_INFO' });
+        });
+        conn.on('data', (data) => {
+          if (data.type === 'POLL_INFO') {
+            document.getElementById('voter-title').innerText = data.title;
+            const container = document.getElementById('options-container');
+            container.innerHTML = '';
+            data.options.forEach((opt, index) => {
+              const label = document.createElement('label');
+              label.className = 'option-item';
+              label.innerHTML = `<input type="radio" name="poll-option" value="${index}" required> <b>${opt}</b>`;
+              container.appendChild(label);
+            });
+          }
+        });
+      });
+    }
+
+    function submitVote(e) {
+      e.preventDefault();
+      const selected = document.querySelector('input[name="poll-option"]:checked');
+      if (!selected) return;
+
+      const voteData = {
+        optionIndex: parseInt(selected.value),
+        opinion: document.getElementById('voter-opinion').value.trim()
+      };
+
+      conn.send({ type: 'SUBMIT_VOTE', vote: voteData });
+      document.getElementById('vote-form').classList.add('hidden');
+      document.getElementById('voted-message').classList.remove('hidden');
+    }
+  </script>
+</body>
+</html>
