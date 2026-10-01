@@ -4,8 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>即時匿名投票系統</title>
-  <!-- 載入外掛套件 -->
-  <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.2/dist/peerjs.min.js"></script>
+  <!-- 載入 Firebase 與 QRCode 套件 -->
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f4f6f9; margin: 0; padding: 20px; color: #333; }
@@ -21,7 +22,6 @@
     #qrcode { display: flex; justify-content: center; margin: 20px 0; }
     .hidden { display: none; }
     
-    /* 表格樣式 */
     table { width: 100%; border-collapse: collapse; margin-top: 20px; table-layout: fixed; }
     th, td { border: 1px solid #e0e0e0; padding: 12px; text-align: center; vertical-align: top; word-wrap: break-word; }
     th { background: #f8f9fa; color: #1a73e8; font-size: 18px; }
@@ -95,26 +95,28 @@
   </div>
 
   <script>
-    let peer = null;
-    let conn = null;
-    let pollData = { title: '', options: [], votes: [], totalCount: 0 };
+    // ⚠️ 請將底下的 databaseURL 替換成您在 Firebase 申請到的資料庫網址 ⚠️
+    const firebaseConfig = {
+      databaseURL: "https://替換成您的專案網址.firebaseio.com"
+    };
+
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+
+    let currentPollId = null;
+    let pollOptions = [];
+    let currentVotes = [];
 
     window.onload = function() {
-      // 檢查套件是否成功載入
-      if (typeof Peer === 'undefined' || typeof QRCode === 'undefined') {
-        alert('網路套件載入失敗，請確認已連接網際網路。');
-        return;
-      }
-
       const urlParams = new URLSearchParams(window.location.search);
-      const hostId = urlParams.get('host');
+      const pollId = urlParams.get('poll');
 
-      if (hostId) {
-        setupVoter(hostId);
+      if (pollId) {
+        setupVoter(pollId);
       }
     };
 
-    // --- 發起投票 ---
+    // --- 發起投票 (管理者) ---
     function createPoll() {
       const title = document.getElementById('poll-title').value.trim();
       const optionsRaw = document.getElementById('poll-options').value.trim();
@@ -124,58 +126,35 @@
         return;
       }
 
-      const btn = document.getElementById('create-btn');
-      btn.disabled = true;
-      btn.innerText = '連線建立中，請稍候...';
+      const options = optionsRaw.split('\n').map(s => s.trim()).filter(s => s.length > 0);
+      
+      // 產生新的投票 ID 並存入 Firebase
+      const newPollRef = db.ref('polls').push();
+      currentPollId = newPollRef.key;
+      pollOptions = options;
 
-      pollData.title = title;
-      pollData.options = optionsRaw.split('\n').map(s => s.trim()).filter(s => s.length > 0);
+      newPollRef.set({
+        title: title,
+        options: options,
+        created: Date.now()
+      }).then(() => {
+        document.getElementById('setup-view').classList.add('hidden');
+        document.getElementById('host-view').classList.remove('hidden');
+        document.getElementById('display-title').innerText = title;
 
-      try {
-        peer = new Peer();
+        const voteUrl = window.location.origin + window.location.pathname + '?poll=' + currentPollId;
+        
+        document.getElementById("qrcode").innerHTML = "";
+        new QRCode(document.getElementById("qrcode"), { text: voteUrl, width: 200, height: 200 });
+        document.getElementById('link-url').innerText = voteUrl;
 
-        peer.on('open', (id) => {
-          document.getElementById('setup-view').classList.add('hidden');
-          document.getElementById('host-view').classList.remove('hidden');
-          document.getElementById('display-title').innerText = pollData.title;
-
-          // 產生專屬投票網址
-          const voteUrl = window.location.origin + window.location.pathname + '?host=' + id;
-          
-          // 渲染 QR Code
-          document.getElementById("qrcode").innerHTML = "";
-          new QRCode(document.getElementById("qrcode"), { 
-            text: voteUrl, 
-            width: 200, 
-            height: 200 
-          });
-          document.getElementById('link-url').innerText = voteUrl;
-
-          // 監聽連線與投票
-          peer.on('connection', (c) => {
-            c.on('data', (data) => {
-              if (data.type === 'REQUEST_INFO') {
-                c.send({ type: 'POLL_INFO', title: pollData.title, options: pollData.options });
-              } else if (data.type === 'SUBMIT_VOTE') {
-                pollData.votes.push(data.vote);
-                pollData.totalCount++;
-                document.getElementById('vote-count-display').innerText = pollData.totalCount;
-              }
-            });
-          });
+        // 即時監聽已投票人數與數據
+        db.ref('polls/' + currentPollId + '/votes').on('value', (snapshot) => {
+          const votesObj = snapshot.val() || {};
+          currentVotes = Object.values(votesObj);
+          document.getElementById('vote-count-display').innerText = currentVotes.length;
         });
-
-        peer.on('error', (err) => {
-          alert('連線建立失敗：' + err.type + '\n請重新整理頁面再試一次。');
-          btn.disabled = false;
-          btn.innerText = '發起投票';
-        });
-
-      } catch (e) {
-        alert('發生錯誤：' + e.message);
-        btn.disabled = false;
-        btn.innerText = '發起投票';
-      }
+      });
     }
 
     // --- 開票 ---
@@ -191,20 +170,17 @@
       countsRow.innerHTML = '';
       opinionsRow.innerHTML = '';
 
-      pollData.options.forEach((opt, index) => {
-        // 1. 欄標題
+      pollOptions.forEach((opt, index) => {
         const th = document.createElement('th');
         th.innerText = opt;
         headerRow.appendChild(th);
 
-        // 2. 票數計算
-        const optVotes = pollData.votes.filter(v => v.optionIndex === index);
+        const optVotes = currentVotes.filter(v => v.optionIndex === index);
         const tdCount = document.createElement('td');
         tdCount.className = 'vote-count';
         tdCount.innerText = optVotes.length;
         countsRow.appendChild(tdCount);
 
-        // 3. 補充意見
         const tdOpinion = document.createElement('td');
         const ul = document.createElement('ul');
         ul.className = 'opinion-list';
@@ -227,28 +203,28 @@
     }
 
     // --- 投票者邏輯 ---
-    function setupVoter(hostId) {
+    function setupVoter(pollId) {
       document.getElementById('setup-view').classList.add('hidden');
       document.getElementById('voter-view').classList.remove('hidden');
 
-      peer = new Peer();
-      peer.on('open', () => {
-        conn = peer.connect(hostId);
-        conn.on('open', () => {
-          conn.send({ type: 'REQUEST_INFO' });
-        });
-        conn.on('data', (data) => {
-          if (data.type === 'POLL_INFO') {
-            document.getElementById('voter-title').innerText = data.title;
-            const container = document.getElementById('options-container');
-            container.innerHTML = '';
-            data.options.forEach((opt, index) => {
-              const label = document.createElement('label');
-              label.className = 'option-item';
-              label.innerHTML = `<input type="radio" name="poll-option" value="${index}" required> <b>${opt}</b>`;
-              container.appendChild(label);
-            });
-          }
+      currentPollId = pollId;
+
+      db.ref('polls/' + pollId).once('value', (snapshot) => {
+        const data = snapshot.val();
+        if (!data) {
+          alert('找不到此投票或投票已結束。');
+          return;
+        }
+
+        document.getElementById('voter-title').innerText = data.title;
+        const container = document.getElementById('options-container');
+        container.innerHTML = '';
+
+        data.options.forEach((opt, index) => {
+          const label = document.createElement('label');
+          label.className = 'option-item';
+          label.innerHTML = `<input type="radio" name="poll-option" value="${index}" required> <b>${opt}</b>`;
+          container.appendChild(label);
         });
       });
     }
@@ -260,12 +236,14 @@
 
       const voteData = {
         optionIndex: parseInt(selected.value),
-        opinion: document.getElementById('voter-opinion').value.trim()
+        opinion: document.getElementById('voter-opinion').value.trim(),
+        timestamp: Date.now()
       };
 
-      conn.send({ type: 'SUBMIT_VOTE', vote: voteData });
-      document.getElementById('vote-form').classList.add('hidden');
-      document.getElementById('voted-message').classList.remove('hidden');
+      db.ref('polls/' + currentPollId + '/votes').push(voteData).then(() => {
+        document.getElementById('vote-form').classList.add('hidden');
+        document.getElementById('voted-message').classList.remove('hidden');
+      });
     }
   </script>
 </body>
